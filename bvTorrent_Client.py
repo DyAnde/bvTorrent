@@ -1,16 +1,7 @@
 from threading import *
 from socket import *
-
-
-# client to tracker
-
-# in a try block:
-	# recieve filename
-	# recieve chunksize
-	# recieve numchunks
-
-	# for numchunks send the hashed data (chunksize)
-	# send back to the tracker the port it is listening on
+from sys import argv
+from pathlib import *
 
 # New connection to the swarm.
 # - Client will recieve file and chunk info from tracker
@@ -18,9 +9,24 @@ from socket import *
 # 	- Which port it will listen on to recieve incoming connections
 # 	- It's current chunk mask (denoting which chunks it has)
 def newConnection():
+# in a try block:
+	# recieve filename
+	# recieve chunksize
+	# recieve numchunks
+	# for numchunks send the hashed data (chunksize)
+	# send back to the tracker the port it is listening on
 	pass
 
-# have the functions outlined in class 2/13
+
+if len(argv) == 2 and argv[1] == "-s":
+	# This is a seeder client
+	# - Seeder will only need to connect to the tracker and take connections from other clients
+	# seeder files are stored in "seederFiles" directory
+	newConnection()	
+elif len(argv) != 1:
+	print("Usage: python3 bvTorrent_Client.py")
+	exit()
+
 
 # Update the mask of the client
 # - Client tells tracker which chunks it has downloaded
@@ -38,12 +44,9 @@ def getClientlist():
 def Disconnect():
 	pass
 
-# Client to Client
-	# send the chunk index you would like to recieve
 
-	#recieve binary chunk data
 # Client requests a connection to another client
-# ** ONE SOCKET PER CHUNK **
+# ** ONE SOCKET PER CHUNK e.g. REQUEST SINGLE CHUNK, CLOSE CONNECTION, OPEN NEW CONNECTION, REQUEST SINGLE CHUNK, etc.**
 # Protocol:
 # 	- Requesting client establishes connection with another client that has the desired chunk(s)
 # 	- Requesting client will send single integer in an ASCII string that is new line terminated.
