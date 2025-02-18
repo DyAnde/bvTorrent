@@ -29,26 +29,37 @@ def getLine(conn: socket):
 	# recieve numchunks
 	# for numchunks send the hashed data (chunksize)
 	# send back to the tracker the port it is listening on
-def newConnection():
+def newConnection(connInfo: tuple):
 	"""
 	New connection to the swarm.
 	 - Client will recieve file and chunk info from tracker
 	 - Client will tell tracker:
 		- Which port it will listen on to recieve incoming connections
 		- It's current chunk mask (denoting which chunks it has)
+	
+	param connInfo: tuple of (IP, port) of the tracker
 	"""
-
-	pass
-
-
-if len(argv) == 2 and argv[1] == "-s":
-	# This is a seeder client
-	# - Seeder will only need to connect to the tracker and take connections from other clients
-	# seeder files are stored in "seederFiles" directory
-	newConnection()	
-elif len(argv) != 1:
-	print("Usage: python3 bvTorrent_Client.py")
-	exit()
+	try:
+		clientSocket = socket(AF_INET, SOCK_STREAM)
+		clientSocket.connect(connInfo)
+	except ConnectionRefusedError:
+		print("Connection refused")
+		exit()
+	# Recieve file name
+	fileName: str = getLine(clientSocket)
+	# Recieve chunk size
+	chunkSize: int = int(getLine(clientSocket))
+	# Recieve number of chunks
+	numChunks: int = int(getLine(clientSocket))
+	# Recieve the hashed data for each chunk
+	hashedData: str = ""
+	for i in range(numChunks):
+		hashedData += getLine(clientSocket)
+	# Put hashedData into a cleaner data structure
+	hashedDataList: list = hashedData.split("\n")
+	# Send back the port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
+	# 	- New client example: 12345,000000000000000000000
+	# 	- Seeder client example: 12345,111111111111111111111
 
 
 def updateMask():
@@ -86,3 +97,22 @@ def client_to_client():
 		- Recieving client will hash the recieved data to derive its checksum and confirm the derived checksum matches the checksum matches the checksum the tracker provided
 	"""
 	pass
+
+# Setup listening socket
+listener = socket(AF_INET, SOCK_STREAM)
+listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+listener.bind(("", 0))
+listener.listen(5) # 5 is the maximum number of queued connections
+listenerPort = listener.getsockname()[1] # Will use available port provided by OS
+
+print(f"Listening on port {listenerPort}")
+
+if len(argv) == 2 and argv[1] == "-s":
+	# This is a seeder client
+	# - Seeder will only need to connect to the tracker and take connections from other clients
+	# seeder files are stored in "seederFiles" directory
+	newConnection()	
+elif len(argv) != 1:
+	print("Usage: python3 bvTorrent_Client.py")
+	exit()
+
