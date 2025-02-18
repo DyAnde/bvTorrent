@@ -5,6 +5,24 @@ from pathlib import *
 
 # doing something like "print(updateMask.__doc__)" will print the docstring of the function
 
+def getFullMsg(conn: socket, msgLength: int):
+	msg = b""
+	while len(msg) < msgLength:
+		retVal = conn.recv(msgLength - len(msg))
+		msg += retVal
+		if len(retVal) == 0:
+			break
+	return msg
+
+def getLine(conn: socket):
+	msg = b""
+	while True:
+		ch = conn.recv(1)
+		msg += ch
+		if ch == b"\n" or len(ch) == 0:
+			break
+	return msg.decode()
+
 # in a try block:
 	# recieve filename
 	# recieve chunksize
@@ -19,6 +37,7 @@ def newConnection():
 		- Which port it will listen on to recieve incoming connections
 		- It's current chunk mask (denoting which chunks it has)
 	"""
+
 	pass
 
 
