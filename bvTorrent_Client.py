@@ -5,6 +5,8 @@ from pathlib import *
 
 # doing something like "print(updateMask.__doc__)" will print the docstring of the function
 
+repo: Path = Path.cwd() / "repository/"
+
 def getFullMsg(conn: socket, msgLength: int):
 	msg = b""
 	while len(msg) < msgLength:
@@ -22,6 +24,30 @@ def getLine(conn: socket):
 		if ch == b"\n" or len(ch) == 0:
 			break
 	return msg.decode()
+
+# Setup listening socket
+listener = socket(AF_INET, SOCK_STREAM)
+listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+listener.bind(("", 0))
+listener.listen(5) # 5 is the maximum number of queued connections
+listenerPort = listener.getsockname()[1] # Will use available port provided by OS
+
+print(f"Listening on port {listenerPort}")
+
+def updateMask():
+	"""
+	Update the mask of the client
+	- Client tells tracker which chunks it has downloaded
+	"""
+	pass
+
+def clientListReq():
+	"""Client requests an updated list of all other clients in the swarm and their chunk masks"""
+	pass
+
+def disconnect():
+	"""Cleanly disconnect from the swarm"""
+	pass
 
 # in a try block:
 	# recieve filename
@@ -57,31 +83,20 @@ def newConnection(connInfo: tuple):
 		hashedData += getLine(clientSocket)
 	# Put hashedData into a cleaner data structure
 	hashedDataList: list = hashedData.split("\n")
-	# Send back the port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
-	# 	- New client example: 12345,000000000000000000000
-	# 	- Seeder client example: 12345,111111111111111111111
-
-
-def updateMask():
-	"""
-	Update the mask of the client
-	- Client tells tracker which chunks it has downloaded
-	"""
-	pass
-
-
-def clientListReq():
-	"""Client requests an updated list of all other clients in the swarm and their chunk masks"""
-	pass
-
-
-def getClientlist():
-	pass
-
-
-def Disconnect():
-	"""Cleanly disconnect from the swarm"""
-	pass
+	# Check if we have any chunks of the file
+	for file in repo.iterdir():
+		# Check if we have the file
+		# Send back the port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
+		# 	- New client example: 12345,000000000000000000000
+		# 	- Seeder client example: 12345,111111111111111111111
+		if file.name == fileName:
+			# We have the file, so we are seeder, send back the port and chunk mask
+			clientSocket.send(f"{listenerPort},{1*numChunks}\n".encode())
+		else:
+			# We don't have the file, send back the port and chunk mask
+			clientSocket.send(f"{listenerPort},{0*numChunks}\n".encode())
+	# Tracker now goes into a loop that listens for 3 things "UPDATE_MASK\n", "CLIENT_LIST\n", and "DISCONNECT!\n"
+	
 
 
 # ** ONE SOCKET PER CHUNK e.g. REQUEST SINGLE CHUNK, CLOSE CONNECTION, OPEN NEW CONNECTION, REQUEST SINGLE CHUNK, etc.**
@@ -98,15 +113,6 @@ def client_to_client():
 	"""
 	pass
 
-# Setup listening socket
-listener = socket(AF_INET, SOCK_STREAM)
-listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-listener.bind(("", 0))
-listener.listen(5) # 5 is the maximum number of queued connections
-listenerPort = listener.getsockname()[1] # Will use available port provided by OS
-
-print(f"Listening on port {listenerPort}")
-
 if len(argv) == 2 and argv[1] == "-s":
 	# This is a seeder client
 	# - Seeder will only need to connect to the tracker and take connections from other clients
@@ -115,4 +121,3 @@ if len(argv) == 2 and argv[1] == "-s":
 elif len(argv) != 1:
 	print("Usage: python3 bvTorrent_Client.py")
 	exit()
-
