@@ -174,7 +174,7 @@ cython_debug/
 partners.txt
 
 # The homework pdf
-hw3.pdf
+hw_3.pdf
 
 # The tracker file
 bvTorrent-tracker.py
