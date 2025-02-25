@@ -8,9 +8,6 @@ import hashlib
 
 repo: Path = Path.cwd() / "repository"
 
-seederFiles: Path = Path.cwd() / "seederFiles"
-# This is where we will store the files we are seeding
-
 if not repo.exists():
 	print("No repository found. Creating...")
 	repo.mkdir()
@@ -144,19 +141,35 @@ chunkSize = int(getLine(trackerSocket))
 numChunks = int(getLine(trackerSocket))
 hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
 
-if len(argv) == 2 and argv[1] == "-s":
-	# Seeder
+# Check if we have the file in the repository, and we are not a seeder
+if not (repo / fileName).exists() and len(argv) == 1:
+	# We don't have the file, create it
+	(repo / fileName).touch()
+	# We don't have any chunks, so we don't have the file
+	chunkMask = "0" * numChunks
+elif len(argv) == 2 and argv[1] == "-s":
+	# we are a seeder, so check the seederFiles directory for the file
+	if not ("seederFiles" / fileName).exists():
+		print("Seeder file not found")
+		exit()
+	# We have the file, so we have all the chunks
 	chunkMask = "1" * numChunks
 elif len(argv) != 1:
 	print("Usage: python3 bvTorrent_Client.py")
 	exit()
 else:
-	# Normal client
-	chunkMask = "0" * numChunks
+	# We have the file, check which chunks we have
+	with open(repo / fileName, "rb") as file:
+		for i in range(numChunks):
+			chunkData = file.read(chunkSize)
+			# Hash the chunk data
+			trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[i].split(",")[1].encode()).digest(), byteorder, signed=True)
+			checkSum: int = int.from_bytes(hashlib.sha224(chunkData).digest(), byteorder, signed=True)
+			if trackerCheckSum == checkSum:
+				chunkMask += "1"
+			else:
+				chunkMask += "0"
 
-print(f"{chunkMask=} and {len(chunkMask)=}")
-
-# Check if we have the file
 # Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
 # 	- New client example: 12345,000000000000000000000
 # 	- Seeder client example: 12345,111111111111111111111
