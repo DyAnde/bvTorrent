@@ -45,8 +45,6 @@ listener.bind(("", 0))
 listener.listen(5) # 5 is the maximum number of queued connections
 listenerPort = listener.getsockname()[1] # Will use available port provided by OS
 
-print(f"Listening on port {listenerPort}")
-
 def updateMask(trackerSocket: socket, chunkMask):
 	"""
 	Update the mask of the client
@@ -101,9 +99,9 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		chunkData = getFullMsg(peerSocket, chunkSize)
 		# Hash the chunk data
 		# Going off the assumption that the hashedData is the same length as the number of chunks, so their indexes match
-		trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[chunkID].split(",")[1].encode()).digest(), byteorder, signed=True)
-		peerCheckSum: int = int.from_bytes(hashlib.sha224(chunkData).digest(), byteorder, signed=True)
-		if trackerCheckSum == peerCheckSum:
+		#trackerCheckSum: int = hashlib.sha224(hashedData[chunkID].split(",")[1].strip().encode()).hexdigest()
+		peerCheckSum: int = hashlib.sha224(chunkData).hexdigest()
+		if hashedData[chunkID].split(",")[1].strip() == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
 			print(f"checksums match for chunk {chunkID}")
 			with open(repo / fileName, "wb") as file:
@@ -166,9 +164,9 @@ else:
 		for i in range(numChunks):
 			chunkData = file.read(chunkSize)
 			# Hash the chunk data
-			trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[i].split(",")[1].encode()).digest(), byteorder, signed=True)
-			checkSum: int = int.from_bytes(hashlib.sha224(chunkData).digest(), byteorder, signed=True)
-			if trackerCheckSum == checkSum:
+			#trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[i].split(",")[1].encode()).hexdigest(), byteorder, signed=True)
+			checkSum: int = hashlib.sha224(chunkData).hexdigest()
+			if hashedData[i].split(",")[1].strip() == checkSum:
 				chunkMask += "1"
 			else:
 				chunkMask += "0"
@@ -185,7 +183,10 @@ Thread(target=acceptIncomingConnections, daemon=True).start()
 
 done = False
 while not done:
-	cmd = input("What would you like to do?\n(GET_CHUNK, CLIENT_LIST, DISCONNECT): ").strip().upper()
+	try:
+		cmd = input("What would you like to do?\n(GET_CHUNK, CLIENT_LIST, DISCONNECT): ").strip().upper()
+	except KeyboardInterrupt:
+		cmd = "DISCONNECT"
 	if cmd == "CLIENT_LIST":
 		clients = clientListReq(trackerSocket)
 		print("Clients in swarm:")
