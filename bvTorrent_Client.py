@@ -8,6 +8,8 @@ import hashlib
 
 repo: Path = Path.cwd() / "repository"
 
+seederFiles: Path = Path.cwd() / "seederFiles"
+
 if not repo.exists():
 	print("No repository found. Creating...")
 	repo.mkdir()
@@ -136,7 +138,7 @@ try:
 except ConnectionRefusedError:
 	print("Connection with tracker refused")
 	exit()
-fileName: str = getLine(trackerSocket)
+fileName: str = getLine(trackerSocket).strip()
 chunkSize = int(getLine(trackerSocket))
 numChunks = int(getLine(trackerSocket))
 hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
@@ -149,7 +151,8 @@ if not (repo / fileName).exists() and len(argv) == 1:
 	chunkMask = "0" * numChunks
 elif len(argv) == 2 and argv[1] == "-s":
 	# we are a seeder, so check the seederFiles directory for the file
-	if not ("seederFiles" / fileName).exists():
+	print(f"{fileName=}")
+	if not (seederFiles / fileName).exists():
 		print("Seeder file not found")
 		exit()
 	# We have the file, so we have all the chunks
