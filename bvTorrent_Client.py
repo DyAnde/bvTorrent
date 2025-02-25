@@ -19,16 +19,7 @@ swarmDict: dict[str, str] = {} # Key: File name, Value: chunk mask of that file
 chunkSize: int = -1 # Size of each chunk, default to -1
 numChunks: int = -1 # Number of chunks in the file, default to -1
 hashedData: list[str] = [] # List of hashed data for each chunk, format: "chunkSize,checksum\n"
-
-if len(argv) == 2 and argv[1] == "-s":
-	# Seeder
-	chunkMask: str = "1" * numChunks
-elif len(argv) != 1:
-	print("Usage: python3 bvTorrent_Client.py")
-	exit()
-else:
-	# Normal client
-	chunkMask: str = "0" * numChunks
+chunkMask: str = "" # String of 0s and 1s where 1 denotes the client has the chunk and 0 denotes the client does not have the chunk
 
 def getFullMsg(conn: socket, msgLength: int):
 	msg = b""
@@ -111,7 +102,7 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		chunkData = getFullMsg(peerSocket, chunkSize)
 		# Hash the chunk data
 		# Going off the assumption that the hashedData is the same length as the number of chunks, so their indexes match
-		trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[chunkID].split(",")[1]).digest(), byteorder, signed=True)
+		trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[chunkID].split(",")[1].encode()).digest(), byteorder, signed=True)
 		peerCheckSum: int = int.from_bytes(hashlib.sha224(chunkData).digest(), byteorder, signed=True)
 		if trackerCheckSum == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
@@ -130,8 +121,6 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		return
 
 def handleClient(clientSocket: socket, clientAddr: tuple):
-	print(f"Connection from {clientAddr}")
-
 	# Receive the chunkID from the requester, then send that chunk back
 	chunkID: int = int(getLine(clientSocket))
 	clientSocket.send(chunkMask[chunkID].encode())
@@ -154,20 +143,25 @@ fileName: str = getLine(trackerSocket)
 chunkSize = int(getLine(trackerSocket))
 numChunks = int(getLine(trackerSocket))
 hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
-# Check if we have any chunks of the file
-for file in repo.iterdir():
-	# Check if we have the file
-	# Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
-	# 	- New client example: 12345,000000000000000000000
-	# 	- Seeder client example: 12345,111111111111111111111
-	if file.name == fileName:
-		# We have the file, so we are seeder, send back the port and chunk mask
-		swarmDict[fileName] = chunkMask
-		trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
-	else:
-		# We don't have the file, send back the port and chunk mask
-		swarmDict[fileName] = chunkMask
-		trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
+
+if len(argv) == 2 and argv[1] == "-s":
+	# Seeder
+	chunkMask = "1" * numChunks
+elif len(argv) != 1:
+	print("Usage: python3 bvTorrent_Client.py")
+	exit()
+else:
+	# Normal client
+	chunkMask = "0" * numChunks
+
+print(f"{chunkMask=} and {len(chunkMask)=}")
+
+# Check if we have the file
+# Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
+# 	- New client example: 12345,000000000000000000000
+# 	- Seeder client example: 12345,111111111111111111111
+swarmDict[fileName] = chunkMask
+trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
 # Tracker now goes into a loop that listens for 3 things "UPDATE_MASK\n", "CLIENT_LIST\n", and "DISCONNECT!\n"
 
 # Start threads to listen for incoming connections
