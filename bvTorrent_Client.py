@@ -1,6 +1,6 @@
 from threading import *
 from socket import *
-from sys import argv
+from sys import argv, byteorder
 from pathlib import *
 import hashlib
 
@@ -18,13 +18,17 @@ if not repo.exists():
 swarmDict: dict[str, str] = {} # Key: File name, Value: chunk mask of that file
 chunkSize: int = -1 # Size of each chunk, default to -1
 numChunks: int = -1 # Number of chunks in the file, default to -1
+hashedData: list[str] = [] # List of hashed data for each chunk, format: "chunkSize,checksum\n"
+
 if len(argv) == 2 and argv[1] == "-s":
 	# Seeder
 	chunkMask: str = "1" * numChunks
+elif len(argv) != 1:
+	print("Usage: python3 bvTorrent_Client.py")
+	exit()
 else:
 	# Normal client
 	chunkMask: str = "0" * numChunks
-hashedData: list[str] = [] # List of hashed data for each chunk, format: "chunkSize,checksum\n"
 
 def getFullMsg(conn: socket, msgLength: int):
 	msg = b""
@@ -84,89 +88,6 @@ def disconnect(trackerSocket: socket):
 	trackerSocket.send("DISCONNECT!\n".encode())
 	trackerSocket.close()
 
-# in a try block:
-	# recieve filename
-	# recieve chunksize
-	# recieve numchunks
-	# for numchunks send the hashed data (chunksize)
-	# send back to the tracker the port it is listening on
-def newConnection(connInfo: tuple):
-	"""
-	New connection to the swarm.
-	 - Client will recieve file and chunk info from tracker
-	 - Client will tell tracker:
-		- Which port it will listen on to recieve incoming connections
-		- It's current chunk mask (denoting which chunks it has)
-	
-	param connInfo: tuple of (IP, port) of the tracker
-	"""
-	global chunkSize
-	global numChunks
-	global chunkMask
-	global hashedData
-	try:
-		trackerSocket = socket(AF_INET, SOCK_STREAM)
-		trackerSocket.connect(connInfo)
-	except ConnectionRefusedError:
-		print("Connection with tracker refused")
-		exit()
-	# Recieve file name
-	fileName: str = getLine(trackerSocket)
-	# Recieve chunk size
-	chunkSize = int(getLine(trackerSocket))
-	# Recieve number of chunks
-	numChunks = int(getLine(trackerSocket))
-	# Recieve the hashed data for each chunk
-	hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
-	# Check if we have any chunks of the file
-	for file in repo.iterdir():
-		# Check if we have the file
-		# Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
-		# 	- New client example: 12345,000000000000000000000
-		# 	- Seeder client example: 12345,111111111111111111111
-		if file.name == fileName:
-			# We have the file, so we are seeder, send back the port and chunk mask
-			swarmDict[fileName] = chunkMask
-			trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
-		else:
-			# We don't have the file, send back the port and chunk mask
-			swarmDict[fileName] = chunkMask
-			trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
-	# Tracker now goes into a loop that listens for 3 things "UPDATE_MASK\n", "CLIENT_LIST\n", and "DISCONNECT!\n"
-	done = False
-	while not done:
-		cmd = input("What would you like to do?\n(GET_CHUNK, CLIENT_LIST, DISCONNECT): ").strip().upper()
-		if cmd == "CLIENT_LIST":
-			clients = clientListReq(trackerSocket)
-			print("Clients in swarm:")
-			for client in clients:
-				print(f"\t- {client}")
-		elif cmd == "DISCONNECT":
-			disconnect(trackerSocket)
-			done = True
-		elif cmd == "GET_CHUNK":
-			# Get a chunk from another client, using the 'client_to_client' function
-			# Ask user to input the IP and port of the client they want to connect to
-			try:
-				peerIP = input("Enter the IP of the client you want to connect to: ")
-				peerPort = int(input("Enter the port of the client you want to connect to: "))
-				chunkID = int(input("Enter the chunk ID you want to download: "))
-			except KeyboardInterrupt:
-				helpMe = input("Do you know of any other users in the swarm? (y/n): ").strip().lower()
-				if helpMe == "n":
-					clients = clientListReq(trackerSocket)
-					print("Clients in swarm:")
-					for client in clients:
-						print(f"\t- {client}")
-				continue
-			client_to_client(peerIP, peerPort, chunkID)
-			# The only time our chunkMask should change is when we download something so we can update it here
-			updateMask(trackerSocket, chunkMask)
-		else:
-			print("Invalid command")
-		# Nice extra spacing for readability
-		print()
-
 # ** ONE SOCKET PER CHUNK e.g. REQUEST SINGLE CHUNK, CLOSE CONNECTION, OPEN NEW CONNECTION, REQUEST SINGLE CHUNK, etc.**
 def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 	"""
@@ -187,24 +108,101 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		peerSocket = socket(AF_INET, SOCK_STREAM)
 		peerSocket.connect((targetIP, targetPort))
 		peerSocket.send(f"{chunkID}\n".encode())
-		chunkData: int = int(getFullMsg(peerSocket, chunkSize))
+		chunkData = getFullMsg(peerSocket, chunkSize)
 		# Hash the chunk data
-
+		# Going off the assumption that the hashedData is the same length as the number of chunks, so their indexes match
+		trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[chunkID].split(",")[1]).digest(), byteorder, signed=True)
+		peerCheckSum: int = int.from_bytes(hashlib.sha224(chunkData).digest(), byteorder, signed=True)
+		if trackerCheckSum == peerCheckSum:
+			# checksums match, write the chunk to the file and update the chunk mask
+			print(f"checksums match for chunk {chunkID}")
+			with open(repo / fileName, "wb") as file:
+				file.write(chunkData)
+			chunkMask[chunkID] = "1"
+		else:
+			print(f"Checksums do not match for chunk {chunkID}, not writing to file")
+			peerSocket.close()
 	except ConnectionRefusedError:
 		print(f"Connection refused from {targetIP}:{targetPort}")
 		return
-	except Exception:
-		print(f"Error fetching chunk {chunkID} from {targetIP}:{targetPort}")
+	except Exception as e:
+		print(f"Error fetching chunk {chunkID} from {targetIP}:{targetPort}, with exception: {e}")
 		return
 
+def handleClient(clientSocket: socket, clientAddr: tuple):
+	print(f"Connection from {clientAddr}")
 
-if len(argv) == 2 and argv[1] == "-s":
-	# This is a seeder client
-	# - Seeder will only need to connect to the tracker and take connections from other clients
-	# seeder files are stored in "seederFiles" directory
-	trackerIP = input("Enter the IP of the tracker: ")
-	trackerPort = int(input("Enter the port of the tracker: "))
-	newConnection((trackerIP, trackerPort))
-elif len(argv) != 1:
-	print("Usage: python3 bvTorrent_Client.py")
+	# Receive the chunkID from the requester, then send that chunk back
+	chunkID: int = int(getLine(clientSocket))
+	clientSocket.send(chunkMask[chunkID].encode())
+	clientSocket.close()
+
+def acceptIncomingConnections():
+	while True:
+		Thread(target=handleClient, args=(*listener.accept(),), daemon=True).start()
+
+trackerIP = input("Enter the IP of the tracker: ")
+trackerPort = int(input("Enter the port of the tracker: "))
+
+try:
+	trackerSocket = socket(AF_INET, SOCK_STREAM)
+	trackerSocket.connect((trackerIP, trackerPort))
+except ConnectionRefusedError:
+	print("Connection with tracker refused")
 	exit()
+fileName: str = getLine(trackerSocket)
+chunkSize = int(getLine(trackerSocket))
+numChunks = int(getLine(trackerSocket))
+hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
+# Check if we have any chunks of the file
+for file in repo.iterdir():
+	# Check if we have the file
+	# Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
+	# 	- New client example: 12345,000000000000000000000
+	# 	- Seeder client example: 12345,111111111111111111111
+	if file.name == fileName:
+		# We have the file, so we are seeder, send back the port and chunk mask
+		swarmDict[fileName] = chunkMask
+		trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
+	else:
+		# We don't have the file, send back the port and chunk mask
+		swarmDict[fileName] = chunkMask
+		trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
+# Tracker now goes into a loop that listens for 3 things "UPDATE_MASK\n", "CLIENT_LIST\n", and "DISCONNECT!\n"
+
+# Start threads to listen for incoming connections
+Thread(target=acceptIncomingConnections, daemon=True).start()
+
+done = False
+while not done:
+	cmd = input("What would you like to do?\n(GET_CHUNK, CLIENT_LIST, DISCONNECT): ").strip().upper()
+	if cmd == "CLIENT_LIST":
+		clients = clientListReq(trackerSocket)
+		print("Clients in swarm:")
+		for client in clients:
+			print(f"\t- {client}")
+	elif cmd == "DISCONNECT":
+		disconnect(trackerSocket)
+		done = True
+	elif cmd == "GET_CHUNK":
+		# Get a chunk from another client, using the 'client_to_client' function
+		# Ask user to input the IP and port of the client they want to connect to
+		try:
+			peerIP = input("Enter the IP of the client you want to connect to: ")
+			peerPort = int(input("Enter the port of the client you want to connect to: "))
+			chunkID = int(input("Enter the chunk ID you want to download: "))
+		except KeyboardInterrupt:
+			helpMe = input("Do you know of any other users in the swarm? (y/n): ").strip().lower()
+			if helpMe == "n":
+				clients = clientListReq(trackerSocket)
+				print("Clients in swarm:")
+				for client in clients:
+					print(f"\t- {client}")
+			continue
+		client_to_client(peerIP, peerPort, chunkID)
+		# The only time our chunkMask should change is when we download something so we can update it here
+		updateMask(trackerSocket, chunkMask)
+	else:
+		print("Invalid command")
+	# Nice extra spacing for readability
+	print()
