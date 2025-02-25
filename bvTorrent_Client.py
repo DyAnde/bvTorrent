@@ -100,7 +100,7 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		# Hash the chunk data
 		# Going off the assumption that the hashedData is the same length as the number of chunks, so their indexes match
 		#trackerCheckSum: int = hashlib.sha224(hashedData[chunkID].split(",")[1].strip().encode()).hexdigest()
-		peerCheckSum: int = hashlib.sha224(chunkData).hexdigest()
+		peerCheckSum: str = hashlib.sha224(chunkData).hexdigest()
 		if hashedData[chunkID].split(",")[1].strip() == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
 			print(f"checksums match for chunk {chunkID}")
@@ -165,7 +165,7 @@ else:
 			chunkData = file.read(chunkSize)
 			# Hash the chunk data
 			#trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[i].split(",")[1].encode()).hexdigest(), byteorder, signed=True)
-			checkSum: int = hashlib.sha224(chunkData).hexdigest()
+			checkSum: str = hashlib.sha224(chunkData).hexdigest()
 			if hashedData[i].split(",")[1].strip() == checkSum:
 				chunkMask += "1"
 			else:
@@ -216,4 +216,4 @@ while not done:
 	else:
 		print("Invalid command")
 	# Nice extra spacing for readability
-	print()
+	#print()
