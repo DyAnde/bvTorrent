@@ -99,9 +99,11 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int):
 		chunkData = getFullMsg(peerSocket, chunkSize)
 		# Hash the chunk data
 		# Going off the assumption that the hashedData is the same length as the number of chunks, so their indexes match
-		#trackerCheckSum: int = hashlib.sha224(hashedData[chunkID].split(",")[1].strip().encode()).hexdigest()
-		peerCheckSum: str = hashlib.sha224(chunkData).hexdigest()
-		if hashedData[chunkID].split(",")[1].strip() == peerCheckSum:
+        	#TrackerChecksum: we pull in the hashed data at position chunkID, split it only keeping [1], and stripping it of the newline
+        	trackerChecksum = hashedData[chunkID].split(",")[1].strip()
+        	peerCheckSum: int = hashlib.sha224(chunkData).hexdigest()
+		
+		if trackerChecksum == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
 			print(f"checksums match for chunk {chunkID}")
 			with open(repo / fileName, "wb") as file:
@@ -164,12 +166,14 @@ else:
 		for i in range(numChunks):
 			chunkData = file.read(chunkSize)
 			# Hash the chunk data
-			#trackerCheckSum: int = int.from_bytes(hashlib.sha224(hashedData[i].split(",")[1].encode()).hexdigest(), byteorder, signed=True)
-			checkSum: str = hashlib.sha224(chunkData).hexdigest()
-			if hashedData[i].split(",")[1].strip() == checkSum:
-				chunkMask += "1"
-			else:
-				chunkMask += "0"
+            		# same as in the client_to_client function, split the hashed data @ the given position, then split and strip it of '/n'
+            		Tchecksum = hashedData[i].split(",")[1].strip()
+            		checkSum: int = hashlib.sha224(chunkData).hexdigest()
+            
+            		if Tchecksum == checkSum:
+                		chunkMask += "1"
+            		else:
+                		chunkMask += "0"
 
 # Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
 # 	- New client example: 12345,000000000000000000000
