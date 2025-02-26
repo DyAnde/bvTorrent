@@ -20,6 +20,8 @@ numChunks: int = -1 # Number of chunks in the file, default to -1
 hashedData: list[str] = [] # List of hashed data for each chunk, format: "chunkSize,checksum\n"
 chunkMask: str = "" # String of 0s and 1s where 1 denotes the client has the chunk and 0 denotes the client does not have the chunk
 
+isSeeder: bool = False
+
 def getFullMsg(conn: socket, msgLength: int):
 	msg = b""
 	while len(msg) < msgLength:
@@ -94,6 +96,8 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 
 	return: True if the chunk was successfully downloaded, False otherwise
 	"""
+	global chunkMask
+	global swarmDict
 	try:
 		peerSocket = socket(AF_INET, SOCK_STREAM)
 		peerSocket.connect((targetIP, targetPort))
@@ -107,11 +111,14 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 		if trackerCheckSum == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
 			print(f"checksums match for chunk {chunkID}")
-			with open(repo / fileName, "wb") as file:
+			with open(repo / fileName, "ab") as file:
+				file.seek(chunkID * maxChunkSize)
 				file.write(chunkData)
 			temp = list(chunkMask)
 			temp[chunkID] = "1"
 			chunkMask = "".join(temp)
+			# also update the swarmDict
+			swarmDict[fileName] = chunkMask
 			return True
 		else:
 			print(f"Checksums do not match for chunk {chunkID}, not writing to file")
@@ -121,18 +128,30 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 		print(f"Connection refused from {targetIP}:{targetPort}")
 		return False
 	except Exception as e:
-		print(f"Error fetching chunk {chunkID} from {targetIP}:{targetPort}, with exception: {e}")
+		print(f"Error fetching chunk {chunkID} from {targetIP}:{targetPort}, with exception: \n{e}")
 		return False
 
-def handleClient(clientSocket: socket, clientAddr: tuple):
-	# Receive the chunkID from the requester, then send that chunk back
+def handleClient(clientSocket: socket, clientAddr: tuple, isSeeder: bool = False):
+	# Receive the chunkID from the requester, then send that chunk OF THE FILE back
 	chunkID: int = int(getLine(clientSocket))
-	clientSocket.send(chunkMask[chunkID].encode())
+	if not isSeeder:
+		with open(repo / fileName, "rb") as file:
+			file.seek(chunkID * maxChunkSize)
+			chunkData = file.read(maxChunkSize)
+	else:
+		with open(seederFiles / fileName, "rb") as file:
+			file.seek(chunkID * maxChunkSize)
+			chunkData = file.read(maxChunkSize)
+	clientSocket.send(chunkData)
+	#clientSocket.send(chunkMask[chunkID].encode()) this was only sending a single character of the chunkMask, lol
 	clientSocket.close()
 
-def acceptIncomingConnections():
+def acceptIncomingConnections(isSeeder: bool = False):
 	while True:
-		Thread(target=handleClient, args=(*listener.accept(),), daemon=True).start()
+		if not isSeeder:
+			Thread(target=handleClient, args=(*listener.accept(),), daemon=True).start()
+		else:
+			Thread(target=handleClient, args=(*listener.accept(), True), daemon=True).start()
 
 trackerIP = input("Enter the IP of the tracker: ")
 trackerPort = int(input("Enter the port of the tracker: "))
@@ -156,7 +175,7 @@ if not (repo / fileName).exists() and len(argv) == 1:
 	chunkMask = "0" * numChunks
 elif len(argv) == 2 and argv[1] == "-s":
 	# we are a seeder, so check the seederFiles directory for the file
-	print(f"{fileName=}")
+	isSeeder = True
 	if not (seederFiles / fileName).exists():
 		print("Seeder file not found")
 		exit()
@@ -169,15 +188,17 @@ else:
 	# We have the file, check which chunks we have
 	with open(repo / fileName, "rb") as file:
 		fileData = file.read()
+	j = 0
 	for i in range(0, len(fileData), maxChunkSize):
 		sz = min(maxChunkSize, len(fileData) - i)  # last chunk may be smaller than chunkSize
 		checkSum: str = hashlib.sha224(fileData[i:i+sz]).hexdigest()
-		# Hash the chunk data
-		trackerCheckSum: str = hashedData[i].split(",")[1].strip()
+		trackerCheckSum: str = hashedData[j].split(",")[1].strip()
+		print(f"{len(trackerCheckSum)=} {len(checkSum)=}")
 		if trackerCheckSum == checkSum:
 			chunkMask += "1"
 		else:
 			chunkMask += "0"
+		j += 1
 
 # Send back the listening port (NOT THE PORT THE SOCKET IS CONNECTED TO) and chunk mask as a comma delimited string that is newline terminated
 # 	- New client example: 12345,000000000000000000000
@@ -187,7 +208,10 @@ trackerSocket.send(f"{listenerPort},{chunkMask}\n".encode())
 # Tracker now goes into a loop that listens for 3 things "UPDATE_MASK\n", "CLIENT_LIST\n", and "DISCONNECT!\n"
 
 # Start threads to listen for incoming connections
-Thread(target=acceptIncomingConnections, daemon=True).start()
+if not isSeeder:
+	Thread(target=acceptIncomingConnections, daemon=True).start()
+else:
+	Thread(target=acceptIncomingConnections, args=(True,), daemon=True).start()
 
 done = False
 while not done:
