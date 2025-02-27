@@ -130,7 +130,7 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
             if all(chunk != None for chunk in temp_file):
                 with open(repo / fileName, "ab") as file:
                     for chunk in temp_file:
-                        file.append(chunk)
+                        file.write(chunk)
 
             temp = list(chunkMask)
             temp[chunkID] = "1"
