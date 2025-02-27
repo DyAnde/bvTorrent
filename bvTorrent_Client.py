@@ -21,6 +21,8 @@ hashedData: list[str] = [] # List of hashed data for each chunk, format: "chunkS
 chunkMask: str = "" # String of 0s and 1s where 1 denotes the client has the chunk and 0 denotes the client does not have the chunk
 
 isSeeder: bool = False
+writtenIndex: int = 0
+chunkList: list[bytes] = []
 
 def getFullMsg(conn: socket, msgLength: int):
 	msg = b""
@@ -84,20 +86,17 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 	Client requests a connection to another client
 	Protocol:
 		- Requesting client establishes connection with another client that has the desired chunk(s)
-		- Requesting client will send single integer in an ASCII string that is new line terminated.
-			- Integer represents the chunk id (0-based)
+		- Requesting client will send single integer in an ASCII string that is new line terminated, represents the chunkID (0-based)
 		- Client with the chunk will send back a byte array containing the number of bytes in the chunk
 			- No new line termination
 		- Recieving client will hash the recieved data to derive its checksum and confirm the derived checksum matches the checksum the tracker provided
-	
-	param targetIP: IP of the client we are connecting to\n	
-	param targetPort: Port of the client we are connecting to\n	
-	param chunkID: Index of the chunk we are requesting
 
 	return: True if the chunk was successfully downloaded, False otherwise
 	"""
 	global chunkMask
 	global swarmDict
+	global writtenIndex
+	global chunkList
 	try:
 		peerSocket = socket(AF_INET, SOCK_STREAM)
 		peerSocket.connect((targetIP, targetPort))
@@ -111,9 +110,14 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 		if trackerCheckSum == peerCheckSum:
 			# checksums match, write the chunk to the file and update the chunk mask
 			print(f"checksums match for chunk {chunkID}")
-			with open(repo / fileName, "ab") as file:
-				file.seek(chunkID * maxChunkSize)
-				file.write(chunkData)
+			# add the chunk to the chunkList
+			chunkList[chunkID] = chunkData
+			while chunkList[writtenIndex] is not None:
+				with open(repo / fileName, "ab") as file:
+					#file.seek(chunkID * maxChunkSize)
+					file.write(chunkList[writtenIndex])
+				chunkList[writtenIndex] = None # To save memory
+				writtenIndex += 1
 			temp = list(chunkMask)
 			temp[chunkID] = "1"
 			chunkMask = "".join(temp)
@@ -124,6 +128,9 @@ def client_to_client(targetIP: str, targetPort: int, chunkID: int) -> bool:
 			print(f"Checksums do not match for chunk {chunkID}, not writing to file")
 			peerSocket.close()
 			return False
+	except IndexError:
+		print("List Index out of Range error, you may have the full file, becuase one of the chunks is smaller than the others.")
+		return False
 	except ConnectionRefusedError:
 		print(f"Connection refused from {targetIP}:{targetPort}")
 		return False
@@ -143,7 +150,6 @@ def handleClient(clientSocket: socket, clientAddr: tuple, isSeeder: bool = False
 			file.seek(chunkID * maxChunkSize)
 			chunkData = file.read(maxChunkSize)
 	clientSocket.send(chunkData)
-	#clientSocket.send(chunkMask[chunkID].encode()) this was only sending a single character of the chunkMask, lol
 	clientSocket.close()
 
 def acceptIncomingConnections(isSeeder: bool = False):
@@ -166,6 +172,7 @@ fileName: str = getLine(trackerSocket).strip()
 maxChunkSize = int(getLine(trackerSocket))
 numChunks = int(getLine(trackerSocket))
 hashedData = [getLine(trackerSocket) for _ in range(numChunks)]
+chunkList = [None] * numChunks
 
 # Check if we have the file in the repository, and we are not a seeder
 if not (repo / fileName).exists() and len(argv) == 1:
@@ -193,7 +200,6 @@ else:
 		sz = min(maxChunkSize, len(fileData) - i)  # last chunk may be smaller than chunkSize
 		checkSum: str = hashlib.sha224(fileData[i:i+sz]).hexdigest()
 		trackerCheckSum: str = hashedData[j].split(",")[1].strip()
-		print(f"{len(trackerCheckSum)=} {len(checkSum)=}")
 		if trackerCheckSum == checkSum:
 			chunkMask += "1"
 		else:
@@ -238,6 +244,9 @@ while not done:
 			peerIP = input("Enter the IP of the client you want to connect to: ")
 			peerPort = int(input("Enter the port of the client you want to connect to: "))
 			chunkID = int(input("Enter the chunk ID you want to download: "))
+			if chunkID < 0 or chunkID >= numChunks:
+				print("Invalid chunk ID")
+				chunkID = int(input(f"Enter the chunk ID you want to download, max chunk is {numChunks-1}: "))
 		except KeyboardInterrupt:
 			helpMe = input("Do you know of any other users in the swarm? (y/n): ").strip().lower()
 			if helpMe == "n":
